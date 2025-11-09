@@ -43,6 +43,13 @@ public class FileServer {
                                 writer.flush();
                                 break;
                             //TODO: Implement other commands READ, WRITE, DELETE, LIST
+                            case "WRITE":
+                                fsManager.writeFile(parts[1], parts[2].getBytes());
+                                writer.println("SUCCESS: File '" + parts[1] + "' written.");
+                                writer.flush();
+                                break;
+                            case "READ":
+
                             case "QUIT":
                                 writer.println("SUCCESS: Disconnecting.");
                                 return;

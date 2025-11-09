@@ -137,7 +137,7 @@ public class FileSystemManager {
             throw new Exception("No free slot found.");
         }
 
-        FEntry newFile = new FEntry(fileName, (short) 0, (short) fileSlot);
+        FEntry newFile = new FEntry(fileName, (short) 0, (short) -1);
         fentryTable[fileSlot] = newFile;
         System.out.println("Created File: " + fileName);
 
@@ -147,7 +147,7 @@ public class FileSystemManager {
 
     // TODO: Add readFile, writeFile and other required methods,
 
-    void writeFile(String filename, byte[] contents) throws Exception{
+    public void writeFile(String filename, byte[] contents) throws Exception{
         int fileIndex = findFile(filename);
         if(fileIndex == -1) throw new Exception("ERROR: file " + filename + " does not exist");
 
