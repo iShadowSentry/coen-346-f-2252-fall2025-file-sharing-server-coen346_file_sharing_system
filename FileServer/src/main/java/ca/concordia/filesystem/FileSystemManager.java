@@ -71,6 +71,7 @@ public class FileSystemManager {
             computeMetaDataBytes();
             System.out.println("First data block index: " + firstDataBlockIndex);
             System.out.println("Disk created with size: " + totalSize + " bytes");
+
             fentryTable = new FEntry[MAXFILES];
             fnodesTable = new FNode[MAXBLOCKS];
             freeBlockList = new boolean[MAXBLOCKS];
@@ -95,8 +96,6 @@ public class FileSystemManager {
 
 
 //        if(instance == null) {
-//
-//            //TODO Initialize the file system
 //        } else {
 //            throw new IllegalStateException("FileSystemManager is already initialized.");
 //        }
@@ -104,11 +103,25 @@ public class FileSystemManager {
     }
 
     public void createFile(String fileName) throws Exception {
-        FileSystemManager newFile = new FileSystemManager(fileName, 5);
-        // TODO
-        //throw new UnsupportedOperationException("Method not implemented yet.");
 
+        if (fileName == null || fileName.isEmpty()){
+            throw new Exception("File name is null or empty.");
+        }
 
+        if (findFile(fileName)!=-1){
+            throw new Exception("File already exists.");
+        }
+
+        int fileSlot = findFreeSlot();
+        if (fileSlot == -1){
+            throw new Exception("No free slot found.");
+        }
+
+        FEntry newFile = new FEntry(fileName, (short) 0, (short) fileSlot);
+        fentryTable[fileSlot] = newFile;
+        System.out.println("Created File: " + fileName);
+
+       // throw new UnsupportedOperationException("Method not implemented yet.");
     }
 
 
