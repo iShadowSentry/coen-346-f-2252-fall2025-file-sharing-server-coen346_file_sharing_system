@@ -40,22 +40,50 @@ public class FileServer {
 
                         switch (command) {
                             case "CREATE":
-                                fsManager.createFile(parts[1]);
-                                writer.println("SUCCESS: File '" + parts[1] + "' created.");
+                                if (parts.length < 2) {
+                                    writer.println("ERROR: usage CREATE <filename>"); break;
+                                }
+                                try {
+                                    fsManager.createFile(parts[1]);
+                                    writer.println("SUCCESS: created " + parts[1]);
+                                }
+                                catch (Exception e) {
+                                    writer.println(e.getMessage());
+                                }
                                 writer.flush();
                                 break;
                             //TODO: Implement other commands READ, WRITE, DELETE, LIST
                             case "WRITE":
-                                fsManager.writeFile(parts[1], parts[2].getBytes());
-                                writer.println("SUCCESS: File '" + parts[1] + "' written.");
+                                if (parts.length < 3) { writer.println("ERROR: usage WRITE <filename> <content>"); break; }
+                                try { fsManager.writeFile(parts[1], parts[2].getBytes());
+                                    writer.println("SUCCESS: wrote to " + parts[1]);
+                                }
+                                catch (Exception e) {
+                                    writer.println(e.getMessage());
+                                }
                                 writer.flush();
                                 break;
                             case "READ":
-                                String fileContents = new String(fsManager.readfile(parts[1]), StandardCharsets.US_ASCII);      //Converting Decimals to String Characters.
 
-                                writer.println(fileContents);
-                                writer.println("SUCCESS: File '" + parts[1] + "' read.");
+                                if (parts.length < 2) { writer.println("ERROR: usage READ <filename>"); break; }
+                                try {
+                                    writer.println(new String(fsManager.readFile(parts[1]), StandardCharsets.US_ASCII));
+                                }
+                                catch (Exception e) { writer.println(e.getMessage()); }
+                                break;
+
+                            case "DELETE":
+                                if (parts.length < 2) { writer.println("ERROR: usage DELETE <filename>"); break; }
+                                try {
+                                    fsManager.deleteFile(parts[1]);
+                                    writer.println("SUCCESS: deleted " + parts[1]);
+                                }
+                                catch (Exception e) {
+                                    writer.println(e.getMessage());
+                                }
                                 writer.flush();
+                                break;
+
                             case "QUIT":
                                 writer.println("SUCCESS: Disconnecting.");
                                 return;

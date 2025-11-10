@@ -194,7 +194,7 @@ public class FileSystemManager {
         System.out.println("Wrote " + contents.length + " bytes to " + filename + " in block " + block);
     }
 
-    public byte[] readfile(String filename) throws Exception{
+    public byte[] readFile(String filename) throws Exception{
         int fileIndex = findFile(filename);
         if(fileIndex == -1) throw new Exception("ERROR: file " + filename + " does not exist");
         FEntry entry = fentryTable[fileIndex];
@@ -210,5 +210,35 @@ public class FileSystemManager {
         byte[] contents = new byte[Math.min(entry.getFilesize(), BLOCK_SIZE)];
         disk.readFully(contents, 0, contents.length);
         return contents;
+    }
+
+    public void deleteFile(String fileName) throws Exception {
+        int fileIndex = findFile(fileName);
+        if(fileIndex == -1) throw new Exception("ERROR: file " + fileName + " does not exist");
+
+        FEntry entry = fentryTable[fileIndex];
+
+        short nodeIndex = entry.getFirstBlock();
+        while(nodeIndex != -1){
+            FNode node = fnodesTable[nodeIndex];
+            if(node == null) break;
+
+            int block = node.getBlockIndex();
+            if(block >= 0 && block < freeBlockList.length){
+                long offset = offsetOfBlock(block);
+                disk.seek(offset);
+                disk.write(new byte[BLOCK_SIZE]);
+                freeBlockList[block] = true;
+            }
+
+            int next = node.getNext();
+            fnodesTable[nodeIndex] = null;
+            nodeIndex = (short) next;
+
+        }
+
+        fentryTable[fileIndex] = null;
+        System.out.println("Deleted file: " + fileName);
+
     }
 }
