@@ -194,5 +194,21 @@ public class FileSystemManager {
         System.out.println("Wrote " + contents.length + " bytes to " + filename + " in block " + block);
     }
 
+    public byte[] readfile(String filename) throws Exception{
+        int fileIndex = findFile(filename);
+        if(fileIndex == -1) throw new Exception("ERROR: file " + filename + " does not exist");
+        FEntry entry = fentryTable[fileIndex];
+        if(entry.getFilesize() == 0 || entry.getFirstBlock() == -1) return new byte[0];
 
+        FNode node = fnodesTable[entry.getFirstBlock()];
+        if(node == null){
+            throw new Exception("ERROR: file " + filename + " does not exist");
+        }
+
+        long offset = offsetOfBlock(node.getBlockIndex());
+        disk.seek(offset);
+        byte[] contents = new byte[Math.min(entry.getFilesize(), BLOCK_SIZE)];
+        disk.readFully(contents, 0, contents.length);
+        return contents;
+    }
 }

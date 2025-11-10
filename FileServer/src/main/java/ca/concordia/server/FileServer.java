@@ -6,6 +6,8 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 
 public class FileServer {
 
@@ -49,7 +51,11 @@ public class FileServer {
                                 writer.flush();
                                 break;
                             case "READ":
+                                String fileContents = new String(fsManager.readfile(parts[1]), StandardCharsets.US_ASCII);      //Converting Decimals to String Characters.
 
+                                writer.println(fileContents);
+                                writer.println("SUCCESS: File '" + parts[1] + "' read.");
+                                writer.flush();
                             case "QUIT":
                                 writer.println("SUCCESS: Disconnecting.");
                                 return;
