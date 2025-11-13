@@ -84,6 +84,15 @@ public class FileServer {
                                 writer.flush();
                                 break;
 
+                            case "LIST":
+                                String[] fileList = fsManager.listFiles();
+
+                                if(fileList.length == 0){
+                                    writer.println("NO FILES");
+                                }else{
+                                    writer.println(String.join(", ", fileList));
+                                }
+                                break;
                             case "QUIT":
                                 writer.println("SUCCESS: Disconnecting.");
                                 return;
