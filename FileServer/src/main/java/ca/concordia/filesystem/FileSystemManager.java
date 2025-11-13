@@ -88,6 +88,27 @@ public class FileSystemManager {
         return (long) blockIndex * BLOCK_SIZE;
     }
 
+    private int blocksNeeded(int n){
+        if (n <= 0) return 0;
+        return (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    }
+    
+    private java.util.List<Integer> findFreeDataBlocks(int n){
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        for (int i = firstDataBlockIndex; i < MAXBLOCKS && out.size() < n; i++) {
+            if (freeBlockList[i]) out.add(i);
+        }
+        return out.size() == n ? out : java.util.List.of();
+    }
+
+    private java.util.List<Integer> findFreeNodeIndecies(int n){
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        for (int i = 0; i < MAXBLOCKS && out.size() < n; i++) {
+            if (fnodesTable[i] == null) out.add(i);
+        }
+        return  out.size() == n ? out : java.util.List.of();
+    }
+
     public FileSystemManager(String filename, int totalSize) {
         // Initialize the file system manager with a file
         try{
@@ -151,47 +172,150 @@ public class FileSystemManager {
         int fileIndex = findFile(filename);
         if(fileIndex == -1) throw new Exception("ERROR: file " + filename + " does not exist");
 
-        if(contents.length > BLOCK_SIZE){
-            throw new Exception("ERROR: data too big for a single block");
-        }
+//        if(contents.length > BLOCK_SIZE){
+//            throw new Exception("ERROR: data too big for a single block");
+//        }
 
         FEntry entry = fentryTable[fileIndex];
-        if(entry.getFirstBlock() != -1){
-            FNode old = fnodesTable[entry.getFirstBlock()];
-            if(old != null && old.getBlockIndex()>=0){
-                long off = offsetOfBlock(old.getBlockIndex());
-                disk.seek(off);
-                disk.write(new byte[BLOCK_SIZE]);
-                freeBlockList[old.getBlockIndex()] = true;
+        if(contents.length == 0){
+            short nodeIndex = entry.getFirstBlock();
+
+            while (nodeIndex != -1) {
+                FNode node = fnodesTable[nodeIndex];
+                if (node == null) break;
+                int block = node.getBlockIndex();
+                if (block >= 0 && block < freeBlockList.length) {
+                    long off = offsetOfBlock(block);
+                    disk.seek(off);
+                    disk.write(new byte[BLOCK_SIZE]);
+                    freeBlockList[block] = true;
+                }
+                int next = node.getNext();
+                fnodesTable[nodeIndex] = null;
+                nodeIndex = (short) next;
             }
-            fnodesTable[entry.getFirstBlock()] = null;
             entry.setFirstBlock((short) -1);
+            entry.setFilesize((short) 0);
+            System.out.println("Wrote 0 Bytes to " + filename + " (cleared)");
+            return;
         }
 
-        int block = findFreeDataBlock();
-        if(block == -1) {
-            throw new Exception("ERROR: file too large (no free blocks)");
+        int requireBlocks = blocksNeeded(contents.length);
+
+        var freeBlocks = findFreeDataBlocks(requireBlocks);
+        if (freeBlocks.isEmpty()) throw new Exception("ERROR: file too large (no free blocks)");
+        var freeNodes = findFreeNodeIndecies(requireBlocks);
+        if (freeNodes.isEmpty()) throw new Exception("ERROR: no free FNODE slots");
+
+        java.util.List<Integer> newNodesUsed = new java.util.ArrayList<>();
+        java.util.List<Integer> newBlocksUsed = new java.util.ArrayList<>();
+        short newHead = -1;
+        short prevNode = -1;
+
+        try {
+            int remaining = contents.length;
+            int cursor = 0;
+
+            for (int i = 0; i < requireBlocks; i++){
+                 int nodeIndex = freeNodes.get(i);
+                 int block = freeBlocks.get(i);
+
+                 int chunk = Math.min(remaining, BLOCK_SIZE);
+                 long off = offsetOfBlock(block);
+                 disk.seek(off);
+                 disk.write(contents, cursor, chunk);
+                 if (chunk < BLOCK_SIZE) {
+                     disk.write(new byte[BLOCK_SIZE - chunk]);
+                 }
+
+                 FNode node = new FNode(block);
+                 node.setNext(-1);
+                 fnodesTable[nodeIndex] = node;
+
+                 if (prevNode == -1) {
+                     newHead = (short) nodeIndex;
+                 }else {
+                     fnodesTable[prevNode].setNext(nodeIndex);
+                 }
+                 prevNode = (short) nodeIndex;
+
+                 newNodesUsed.add(nodeIndex);
+                 newBlocksUsed.add(block);
+
+                freeBlockList[block] = false;
+                remaining -= chunk;
+                 cursor += chunk;
+            }
+
+            short old = entry.getFirstBlock();
+            while (old != -1) {
+                FNode node = fnodesTable[old];
+                if (node == null) break;
+                int blockIndex = node.getBlockIndex();
+                if (blockIndex >= 0 && blockIndex < freeBlockList.length) {
+                    long off = offsetOfBlock(blockIndex);
+                    disk.seek(off);
+                    disk.write(new byte[BLOCK_SIZE]);
+                    freeBlockList[blockIndex] = true;
+                }
+                int next = node.getNext();
+                fnodesTable[old] = null;
+                old = (short) next;
+            }
+
+            entry.setFirstBlock(newHead);
+            entry.setFilesize((short) contents.length);
+            System.out.println("Wrote " + contents.length + " Bytes to " + filename + " using " + requireBlocks + " blocks.");
+        } catch (Exception ex){
+            for (int i = 0; i < newNodesUsed.size(); i++) {
+                int nodeIndex = newNodesUsed.get(i);
+                int block = newBlocksUsed.get(i);
+                try {
+                    long off = offsetOfBlock(block);
+                    disk.seek(off);
+                    disk.write(new byte[BLOCK_SIZE]);
+                } catch (Exception ignore) {}
+                fnodesTable[nodeIndex] = null;
+                if (block >= 0 && block < freeBlockList.length) freeBlockList[block] = true;
+            }
+            throw  ex;
         }
-
-        long offset = offsetOfBlock(block);
-        disk.seek(offset);
-        disk.write(contents);
-        if(contents.length < BLOCK_SIZE){
-            disk.write(new byte[BLOCK_SIZE - contents.length]);
-        }
-
-        int nodeIndex = findFreeNode();
-        if(nodeIndex == -1) throw new Exception("ERROR: no free FNode slots");
-
-        FNode node = new FNode(block);
-        node.setNext(-1);
-        fnodesTable[nodeIndex] = node;
-
-        entry.setFirstBlock((short) nodeIndex);
-        entry.setFilesize((short) contents.length);
-        freeBlockList[block] = false;
-
-        System.out.println("Wrote " + contents.length + " bytes to " + filename + " in block " + block);
+//        if(entry.getFirstBlock() != -1){
+//            FNode old = fnodesTable[entry.getFirstBlock()];
+//            if(old != null && old.getBlockIndex()>=0){
+//                long off = offsetOfBlock(old.getBlockIndex());
+//                disk.seek(off);
+//                disk.write(new byte[BLOCK_SIZE]);
+//                freeBlockList[old.getBlockIndex()] = true;
+//            }
+//            fnodesTable[entry.getFirstBlock()] = null;
+//            entry.setFirstBlock((short) -1);
+//        }
+//
+//        int block = findFreeDataBlock();
+//        if(block == -1) {
+//            throw new Exception("ERROR: file too large (no free blocks)");
+//        }
+//
+//        long offset = offsetOfBlock(block);
+//        disk.seek(offset);
+//        disk.write(contents);
+//        if(contents.length < BLOCK_SIZE){
+//            disk.write(new byte[BLOCK_SIZE - contents.length]);
+//        }
+//
+//        int nodeIndex = findFreeNode();
+//        if(nodeIndex == -1) throw new Exception("ERROR: no free FNode slots");
+//
+//        FNode node = new FNode(block);
+//        node.setNext(-1);
+//        fnodesTable[nodeIndex] = node;
+//
+//        entry.setFirstBlock((short) nodeIndex);
+//        entry.setFilesize((short) contents.length);
+//        freeBlockList[block] = false;
+//
+//        System.out.println("Wrote " + contents.length + " bytes to " + filename + " in block " + block);
     }
 
     public byte[] readFile(String filename) throws Exception{
@@ -200,16 +324,35 @@ public class FileSystemManager {
         FEntry entry = fentryTable[fileIndex];
         if(entry.getFilesize() == 0 || entry.getFirstBlock() == -1) return new byte[0];
 
-        FNode node = fnodesTable[entry.getFirstBlock()];
-        if(node == null){
-            throw new Exception("ERROR: file " + filename + " does not exist");
-        }
+        byte[] output = new byte[entry.getFilesize()];
+        int written = 0;
 
-        long offset = offsetOfBlock(node.getBlockIndex());
-        disk.seek(offset);
-        byte[] contents = new byte[Math.min(entry.getFilesize(), BLOCK_SIZE)];
-        disk.readFully(contents, 0, contents.length);
-        return contents;
+        short nodeIndex = entry.getFirstBlock();
+        while (nodeIndex != -1 && written < entry.getFilesize()) {
+            FNode node = fnodesTable[nodeIndex];
+            if (node == null) break;
+
+            int block = node.getBlockIndex();
+            long off = offsetOfBlock(block);
+            disk.seek(off);
+
+            int toRead = Math.min(entry.getFilesize() - written, BLOCK_SIZE);
+            disk.readFully(output, written, toRead);
+
+            written += toRead;
+            nodeIndex = (short) node.getNext();
+        }
+        return output;
+//        FNode node = fnodesTable[entry.getFirstBlock()];
+//        if(node == null){
+//            throw new Exception("ERROR: file " + filename + " does not exist");
+//        }
+//
+//        long offset = offsetOfBlock(node.getBlockIndex());
+//        disk.seek(offset);
+//        byte[] contents = new byte[Math.min(entry.getFilesize(), BLOCK_SIZE)];
+//        disk.readFully(contents, 0, contents.length);
+//        return contents;
     }
 
     public void deleteFile(String fileName) throws Exception {
