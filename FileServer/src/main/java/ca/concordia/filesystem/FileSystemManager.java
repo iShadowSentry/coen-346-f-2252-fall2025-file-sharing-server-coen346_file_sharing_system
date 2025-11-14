@@ -3,8 +3,6 @@ package ca.concordia.filesystem;
 import ca.concordia.filesystem.datastructures.FEntry;
 import ca.concordia.filesystem.datastructures.FNode;
 
-import javax.swing.*;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.concurrent.locks.ReentrantLock;
@@ -109,6 +107,121 @@ public class FileSystemManager {
         return  out.size() == n ? out : java.util.List.of();
     }
 
+    private void rebuildFreeBlocks(){
+        Arrays.fill(freeBlockList, true);
+
+        for (int i = 0; i < firstDataBlockIndex; i++) {
+            freeBlockList[i] = false;
+        }
+        for(FNode fn : fnodesTable){
+            if(fn != null){
+                int block = fn.getBlockIndex();
+                freeBlockList[block] = false;
+            }
+        }
+
+    }
+
+    private void loadMetaData() throws IOException{
+
+        for (int i = 0; i < MAXFILES; i++) {
+            disk.seek(offsetOfFEntry(i));
+
+            byte[] raw = new byte[FENTRY_BYTES];
+            disk.read(raw);
+
+            boolean empty = true;
+            for(byte b : raw){
+                if(b!=0){
+                    empty = false;
+                }
+            }
+
+            if(empty){
+                fentryTable[i] = null;
+                continue;
+            }
+
+            int end = 0;
+            while(end < 11 && raw[end] != 0){
+                end++;
+            }
+
+            String name = new String(raw, 0, end);
+
+            short size = (short)(((raw[11] & 0xFF) << 8) | (raw[12] & 0xFF));
+            short first = (short)(((raw[13] & 0xFF) << 8) | (raw[14] & 0xFF));
+
+            fentryTable[i] = new FEntry(name, size, first);
+        }
+
+
+        for (int i = 0; i < MAXBLOCKS; i++) {
+            disk.seek(offsetOfFNode(i));
+
+            byte[] raw = new byte[FNODE_BYTES];
+            disk.read(raw);
+
+            boolean empty = true;
+            for(byte b : raw){
+                if(b!=0){
+                    empty = false;
+                }
+            }
+
+            if(empty){
+                fnodesTable[i] = null;
+                continue;
+            }
+
+            short block = (short)(((raw[0] & 0xFF) << 8) | (raw[1] & 0xFF));
+            short next = (short)(((raw[2] & 0xFF) << 8) | (raw[3] & 0xFF));
+
+            FNode node = new FNode(block);
+            node.setNext(next);
+            fnodesTable[i] = node;
+        }
+
+    }
+
+    private void saveMetaData() throws IOException {
+
+        for (int i = 0; i < MAXFILES; i++) {
+            disk.seek(offsetOfFEntry(i));
+
+            FEntry fe = fentryTable[i];
+            byte[] raw = new byte[FENTRY_BYTES];
+
+            if(fe != null){
+                byte[] name = fe.getFilename().getBytes();
+                int length = Math.min(name.length, 11);
+                System.arraycopy(name, 0, raw, 0, length);
+
+                raw[11] = (byte)(fe.getFilesize() >> 8);
+                raw[12] = (byte)(fe.getFilesize());
+                raw[13] = (byte)(fe.getFirstBlock() >> 8);
+                raw[14] = (byte)(fe.getFirstBlock());
+            }
+
+            disk.write(raw);
+        }
+
+        for (int i = 0; i < MAXBLOCKS; i++) {
+            disk.seek(offsetOfFNode(i));
+
+            FNode fn = fnodesTable[i];
+            byte[] raw = new byte[FNODE_BYTES];
+
+            if(fn != null){
+                raw[0] = (byte)(fn.getBlockIndex() >> 8);
+                raw[1] = (byte)(fn.getBlockIndex());
+                raw[2] = (byte)(fn.getNext() >> 8);
+                raw[3] = (byte)(fn.getNext());
+            }
+            disk.write(raw);
+        }
+    }
+
     public FileSystemManager(String filename, int totalSize) {
         // Initialize the file system manager with a file
         try{
@@ -122,13 +235,10 @@ public class FileSystemManager {
             fnodesTable = new FNode[MAXBLOCKS];
             freeBlockList = new boolean[MAXBLOCKS];
 
-            for (int i = 0; i < MAXBLOCKS; i++) {
-                freeBlockList[i] = true; //all blocks are free at the start
-            }
+            loadMetaData();
+            rebuildFreeBlocks();
 
-            for (int i = 0; i < firstDataBlockIndex; i++) {
-                freeBlockList[i] = false; // index up until first datablock is reserved for metadata
-            }
+            //got rid of for loops here
 
 
         } catch (IOException e){
@@ -161,6 +271,7 @@ public class FileSystemManager {
         try {
             FEntry newFile = new FEntry(fileName, (short) 0, (short) -1);
             fentryTable[fileSlot] = newFile;
+            saveMetaData(); //save metadata before unlocking
         }finally {
             globalLock.unlock();
         }
@@ -268,6 +379,7 @@ public class FileSystemManager {
 
                 entry.setFirstBlock(newHead);
                 entry.setFilesize((short) contents.length);
+                saveMetaData(); //save metadata before unlocking
                 System.out.println("Wrote " + contents.length + " Bytes to " + filename + " using " + requireBlocks + " blocks.");
             } catch (Exception ex){
                 for (int i = 0; i < newNodesUsed.size(); i++) {
@@ -360,6 +472,7 @@ public class FileSystemManager {
             }
 
             fentryTable[fileIndex] = null;
+            saveMetaData(); //save metadata before unlocking
             System.out.println("Deleted file: " + fileName);
         }finally {
             globalLock.unlock();
