@@ -1,138 +1,124 @@
 package ca.concordia.server;
+
 import ca.concordia.filesystem.FileSystemManager;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Arrays;
-import java.nio.charset.StandardCharsets;
 
 public class FileServer {
 
-    private FileSystemManager fsManager;
-    private int port;
+    private final FileSystemManager fsManager;
+    private final int port;
+
     public FileServer(int port, String fileSystemName, int totalSize){
-        // Initialize the FileSystemManager
-        FileSystemManager fsManager = new FileSystemManager(fileSystemName,
-                10*128 );
-        this.fsManager = fsManager;
+        this.fsManager = new FileSystemManager(fileSystemName, totalSize);
         this.port = port;
     }
 
-    private class ClientHandler implements Runnable {
-        private final Socket clientSocket;
+    // ------------ Handle ONE command per client ---------------
+    private void handleClient(Socket clientSocket) {
+        try (
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(clientSocket.getInputStream()));
+                PrintWriter writer = new PrintWriter(clientSocket.getOutputStream(), true)
+        ) {
+            // TEST CLIENT sends exactly ONE line then closes
+            String line = reader.readLine();
+            if (line == null) return;
 
-        ClientHandler(Socket clientSocket) {
-            this.clientSocket = clientSocket;
-        }
+            System.out.println("Received from client: " + line);
 
-        @Override
-        public void run() {
-            System.out.println("Handling client in thread: " + Thread.currentThread().getName());
+            String[] parts = line.split(" ", 3);
+            String command = parts[0].toUpperCase();
 
-            try (
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-                    PrintWriter writer = new PrintWriter(clientSocket.getOutputStream(), true)
-            ) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    System.out.println("Received from client: " + line);
-                    String[] parts = line.split(" ");
-                    String command = parts[0].toUpperCase();
-
+            try {
+                // 🔒 serialize ALL filesystem access here
+                synchronized (fsManager) {
                     switch (command) {
-                        case "CREATE":
+
+                        case "CREATE": {
                             if (parts.length < 2) {
-                                writer.println("ERROR: usage CREATE <filename>"); break;
+                                writer.println("ERROR: usage CREATE <filename>");
+                                break;
                             }
-                            try {
-                                fsManager.createFile(parts[1]);
-                                writer.println("SUCCESS: created " + parts[1]);
-                            }
-                            catch (Exception e) {
-                                writer.println(e.getMessage());
-                            }
-                            writer.flush();
+                            fsManager.createFile(parts[1]);
+                            writer.println("SUCCESS");
                             break;
-                        case "WRITE":
-                            if (parts.length < 3) { writer.println("ERROR: usage WRITE <filename> <content>"); break; }
-                            try { fsManager.writeFile(parts[1], parts[2].getBytes());
-                                writer.println("SUCCESS: wrote to " + parts[1]);
-                            }
-                            catch (Exception e) {
-                                writer.println(e.getMessage());
-                            }
-                            writer.flush();
-                            break;
-                        case "READ":
+                        }
 
-                            if (parts.length < 2) { writer.println("ERROR: usage READ <filename>"); break; }
-                            try {
-                                writer.println(new String(fsManager.readFile(parts[1]), StandardCharsets.US_ASCII));
+                        case "WRITE": {
+                            if (parts.length < 3) {
+                                writer.println("ERROR: usage WRITE <filename> <content>");
+                                break;
                             }
-                            catch (Exception e) { writer.println(e.getMessage()); }
+                            fsManager.writeFile(parts[1], parts[2].getBytes());
+                            writer.println("SUCCESS");
                             break;
+                        }
 
-                        case "DELETE":
-                            if (parts.length < 2) { writer.println("ERROR: usage DELETE <filename>"); break; }
-                            try {
-                                fsManager.deleteFile(parts[1]);
-                                writer.println("SUCCESS: deleted " + parts[1]);
+                        case "READ": {
+                            if (parts.length < 2) {
+                                writer.println("ERROR: usage READ <filename>");
+                                break;
                             }
-                            catch (Exception e) {
-                                writer.println(e.getMessage());
-                            }
-                            writer.flush();
+                            byte[] data = fsManager.readFile(parts[1]);
+                            String out = new String(data);
+                            out = out.replace("\n", "");
+                            writer.println(out.isEmpty() ? "EMPTY" : out);
                             break;
+                        }
 
-                        case "LIST":
-                            String[] fileList = fsManager.listFiles();
+                        case "DELETE": {
+                            if (parts.length < 2) {
+                                writer.println("ERROR: usage DELETE <filename>");
+                                break;
+                            }
+                            fsManager.deleteFile(parts[1]);
+                            writer.println("SUCCESS");
+                            break;
+                        }
 
-                            if(fileList.length == 0){
-                                writer.println("NO FILES");
-                            }else{
-                                writer.println(String.join(", ", fileList));
+                        case "LIST": {
+                            String[] files = fsManager.listFiles();
+                            if (files.length == 0) {
+                                writer.println("NO_FILES");
+                            } else {
+                                writer.println(String.join(",", files));
                             }
                             break;
-                        case "QUIT":
-                            writer.println("SUCCESS: Disconnecting.");
-                            return;
+                        }
+
                         default:
-                            writer.println("ERROR: Unknown command.");
-                            break;
+                            writer.println("ERROR: Unknown command");
                     }
-                }
+                } // end synchronized
+
             } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                try {
-                    clientSocket.close();
-                } catch (Exception e) {
-                    // Ignore
-                }
+                writer.println("ERROR: " + e.getMessage());
             }
-        }
-    }
 
-    public void start(){
-        try (ServerSocket serverSocket = new ServerSocket(12345)) {
-            System.out.println("Server started. Listening on port 12345...");
-
-            while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("Handling client: " + clientSocket);
-
-                ClientHandler clientHandler = new ClientHandler(clientSocket);
-                Thread thread = new Thread(clientHandler);
-                thread.start();
-            }
         } catch (Exception e) {
             e.printStackTrace();
-            System.err.println("Could not start server on port " + port);
+        } finally {
+            try { clientSocket.close(); } catch (Exception ignore) {}
         }
     }
 
+    // -------- Main accept loop: one thread per connection --------
+    public void start(){
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("Server started. Listening on port " + port + "...");
+
+            while (true) {
+                Socket client = serverSocket.accept();
+                new Thread(() -> handleClient(client)).start();
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }
