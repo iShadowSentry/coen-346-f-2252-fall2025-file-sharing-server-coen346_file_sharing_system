@@ -4,10 +4,8 @@ import ca.concordia.filesystem.datastructures.FEntry;
 import ca.concordia.filesystem.datastructures.FNode;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -35,7 +33,7 @@ public class FileSystemManager {
     private int fnodeRegionBytes;    // total bytes for fnode array
     private int metadataBytes;       // total metadata bytes (fentry + fnode)
     private int firstDataBlockIndex; // index of first data block
-    private int readersCount = 0;
+
 
     // ============================= PRIVATE HELPERS ============================= //
 
