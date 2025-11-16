@@ -54,14 +54,15 @@ public class ThreadManagementTests {
         ClientRunner.send("CREATE shared");
         ClientRunner.send("WRITE shared hello");
 
-        ExecutorService pool = Executors.newFixedThreadPool(10);
-        CountDownLatch latch = new CountDownLatch(10);
+        ExecutorService pool = Executors.newFixedThreadPool(6);
+        CountDownLatch latch = new CountDownLatch(6);
 
         // Start readers
         for (int i = 0; i < 5; i++) {
             pool.submit(() -> {
                 try {
                     String res = ClientRunner.send("READ shared");
+
                     assertTrue(res.contains("hello"));
                 } catch (Exception e) {
                     fail("Reader failed: " + e.getMessage());

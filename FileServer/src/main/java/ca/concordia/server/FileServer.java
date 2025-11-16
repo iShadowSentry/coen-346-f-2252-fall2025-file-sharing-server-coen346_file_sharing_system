@@ -13,90 +13,87 @@ public class FileServer {
     private final FileSystemManager fsManager;
     private final int port;
 
-    public FileServer(int port, String fileSystemName, int totalSize){
+    public FileServer(int port, String fileSystemName, int totalSize) {
         this.fsManager = new FileSystemManager(fileSystemName, totalSize);
         this.port = port;
     }
 
-    // ------------ Handle ONE command per client ---------------
     private void handleClient(Socket clientSocket) {
         try (
                 BufferedReader reader = new BufferedReader(
                         new InputStreamReader(clientSocket.getInputStream()));
                 PrintWriter writer = new PrintWriter(clientSocket.getOutputStream(), true)
         ) {
-            // TEST CLIENT sends exactly ONE line then closes
+            // Test client sends exactly ONE line then closes
             String line = reader.readLine();
             if (line == null) return;
 
             System.out.println("Received from client: " + line);
 
+            // split into max 3 parts so WRITE keeps spaces in content
             String[] parts = line.split(" ", 3);
             String command = parts[0].toUpperCase();
 
             try {
-                // 🔒 serialize ALL filesystem access here
-                synchronized (fsManager) {
-                    switch (command) {
+                switch (command) {
 
-                        case "CREATE": {
-                            if (parts.length < 2) {
-                                writer.println("ERROR: usage CREATE <filename>");
-                                break;
-                            }
-                            fsManager.createFile(parts[1]);
-                            writer.println("SUCCESS");
+                    case "CREATE": {
+                        if (parts.length < 2) {
+                            writer.println("ERROR: usage CREATE <filename>");
                             break;
                         }
-
-                        case "WRITE": {
-                            if (parts.length < 3) {
-                                writer.println("ERROR: usage WRITE <filename> <content>");
-                                break;
-                            }
-                            fsManager.writeFile(parts[1], parts[2].getBytes());
-                            writer.println("SUCCESS");
-                            break;
-                        }
-
-                        case "READ": {
-                            if (parts.length < 2) {
-                                writer.println("ERROR: usage READ <filename>");
-                                break;
-                            }
-                            byte[] data = fsManager.readFile(parts[1]);
-                            String out = new String(data);
-                            out = out.replace("\n", "");
-                            writer.println(out.isEmpty() ? "EMPTY" : out);
-                            break;
-                        }
-
-                        case "DELETE": {
-                            if (parts.length < 2) {
-                                writer.println("ERROR: usage DELETE <filename>");
-                                break;
-                            }
-                            fsManager.deleteFile(parts[1]);
-                            writer.println("SUCCESS");
-                            break;
-                        }
-
-                        case "LIST": {
-                            String[] files = fsManager.listFiles();
-                            if (files.length == 0) {
-                                writer.println("NO_FILES");
-                            } else {
-                                writer.println(String.join(",", files));
-                            }
-                            break;
-                        }
-
-                        default:
-                            writer.println("ERROR: Unknown command");
+                        fsManager.createFile(parts[1]);
+                        writer.println("SUCCESS");
+                        break;
                     }
-                } // end synchronized
+
+                    case "WRITE": {
+                        if (parts.length < 3) {
+                            writer.println("ERROR: usage WRITE <filename> <content>");
+                            break;
+                        }
+                        fsManager.writeFile(parts[1], parts[2].getBytes());
+                        writer.println("SUCCESS");
+                        break;
+                    }
+
+                    case "READ": {
+                        if (parts.length < 2) {
+                            writer.println("ERROR: usage READ <filename>");
+                            break;
+                        }
+                        byte[] data = fsManager.readFile(parts[1]);
+                        String out = new String(data).replace("\n", "");
+                        writer.println(out.isEmpty() ? "EMPTY" : out);
+                        break;
+                    }
+
+                    case "DELETE": {
+                        if (parts.length < 2) {
+                            writer.println("ERROR: usage DELETE <filename>");
+                            break;
+                        }
+                        fsManager.deleteFile(parts[1]);
+                        writer.println("SUCCESS");
+                        break;
+                    }
+
+                    case "LIST": {
+                        String[] files = fsManager.listFiles();
+                        if (files.length == 0) {
+                            writer.println("NO_FILES");
+                        } else {
+                            writer.println(String.join(",", files));
+                        }
+                        break;
+                    }
+
+                    default:
+                        writer.println("ERROR: Unknown command");
+                }
 
             } catch (Exception e) {
+                // Any FS error gets reported, but the server keeps running
                 writer.println("ERROR: " + e.getMessage());
             }
 
@@ -107,8 +104,7 @@ public class FileServer {
         }
     }
 
-    // -------- Main accept loop: one thread per connection --------
-    public void start(){
+    public void start() {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Server started. Listening on port " + port + "...");
 
